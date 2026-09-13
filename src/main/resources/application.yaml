@@ -5,9 +5,9 @@ spring:
     #1. Conexion a BD oracle
 
     datasource:
-      url: jdbc:oracle:thin:@//[HOST-DE-TU-BD]:[PUERTO]/[NOMBRE_DEL_SERVICIO]
-      username: tu_usuario
-      password: tu_contraseña
+      url: ${SPRING_DATASOURCE_URL}
+      username: ${SPRING_DATASOURCE_URL}
+      password: ${SPRING_DATASOURCE_PASSWORD}
       drive-class-name: oracle.jbc.OracleDrive
 
     jpa:
@@ -20,18 +20,19 @@ spring:
     flyway:
       enabled: true
 
-    #3. Microsoft entra ID(Resource server)
+    #3. Microsoftentra ID(Resource server)
     cloud:
       azure:
         activate-directory:
           enabled: true
           profile:
-            tenant-id: TU-TENANT-ID
+            tenant-id: ${AZURE_TENANT_ID}
           credential:
-            client-id: TU-CLIENT-ID
+            client-id: ${AZURE_CLIENT_ID}
 
     security:
       oauth2:
         resourceserver:
           jwt:
-            issuer-uri: https://login.microsoftonline.com/TU_TENANT_ID/v2.0
+            issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
+            audiences: api://${AZURE_CLIENT_ID}
