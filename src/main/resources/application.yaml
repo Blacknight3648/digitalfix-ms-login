@@ -1,3 +1,37 @@
 spring:
   application:
     name: digitalfix-ms-login
+
+    #1. Conexion a BD oracle
+
+    datasource:
+      url: jdbc:oracle:thin:@//[HOST-DE-TU-BD]:[PUERTO]/[NOMBRE_DEL_SERVICIO]
+      username: tu_usuario
+      password: tu_contraseña
+      drive-class-name: oracle.jbc.OracleDrive
+
+    jpa:
+      database-plataform: org.hibernate.dialect.OracleDialect
+      hibernate:
+        # Solucion de conflicto: configuracion para control de flyway
+        ddl-auto: validate
+
+    #2. configuración de flyway
+    flyway:
+      enabled: true
+
+    #3. Microsoft entra ID(Resource server)
+    cloud:
+      azure:
+        activate-directory:
+          enabled: true
+          profile:
+            tenant-id: TU-TENANT-ID
+          credential:
+            client-id: TU-CLIENT-ID
+
+    security:
+      oauth2:
+        resourceserver:
+          jwt:
+            issuer-uri: https://login.microsoftonline.com/TU_TENANT_ID/v2.0
