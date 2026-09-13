@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class LoginAuditJPA {
+public class LoginAudit {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,7 +30,17 @@ public class LoginAuditJPA {
     @Column(name = "USER_AGENT", length = 500)
     private String userAgent;
 
+    @Column(name = "MOTIVO_FALLO")
+    private String motivoFallo;
+
     @Column(name = "FECHA_REGISTRO", nullable = false, updatable = false)
-    private LocalDateTime fechaRegistro = LocalDateTime.now();
+    private LocalDateTime fechaRegistro;
+
+    @PrePersist
+    public void prePersist() {
+        if(this.fechaRegistro == null) {
+            this.fechaRegistro = LocalDateTime.now();
+        }
+    }
 
 }
