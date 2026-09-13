@@ -2,37 +2,38 @@ spring:
   application:
     name: digitalfix-ms-login
 
-    #1. Conexion a BD oracle
+  #1. Conexion a BD oracle
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: oracle.jdbc.OracleDriver
 
-    datasource:
-      url: ${SPRING_DATASOURCE_URL}
-      username: ${SPRING_DATASOURCE_URL}
-      password: ${SPRING_DATASOURCE_PASSWORD}
-      drive-class-name: oracle.jbc.OracleDrive
+  jpa:
+    hibernate:
+      # Solucion de conflicto: configuracion para control de flyway
+      ddl-auto: update
 
-    jpa:
-      database-plataform: org.hibernate.dialect.OracleDialect
-      hibernate:
-        # Solucion de conflicto: configuracion para control de flyway
-        ddl-auto: validate
+  #2. configuración de flyway
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
 
-    #2. configuración de flyway
-    flyway:
-      enabled: true
+  #3. Microsoftentra ID(Resource server)
+  cloud:
+    azure:
+      active-directory:
+        enabled: true
+        profile:
+          tenant-id: ${AZURE_TENANT_ID}
+        credential:
+          client-id: ${AZURE_CLIENT_ID}
 
-    #3. Microsoftentra ID(Resource server)
-    cloud:
-      azure:
-        activate-directory:
-          enabled: true
-          profile:
-            tenant-id: ${AZURE_TENANT_ID}
-          credential:
-            client-id: ${AZURE_CLIENT_ID}
-
-    security:
-      oauth2:
-        resourceserver:
-          jwt:
-            issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
-            audiences: api://${AZURE_CLIENT_ID}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
+          audiences: api://${AZURE_CLIENT_ID}
