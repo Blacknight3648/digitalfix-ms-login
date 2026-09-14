@@ -46,8 +46,11 @@ El servicio se configura mediante variables de entorno, definidas en [`src/main/
 | `SPRING_DATASOURCE_URL` | URL JDBC de la base de datos Oracle | `jdbc:oracle:thin:@//oracle-db:1521/FREEPDB1` |
 | `SPRING_DATASOURCE_USERNAME` | Usuario de la base de datos | `system` |
 | `SPRING_DATASOURCE_PASSWORD` | Contraseña de la base de datos | `system` |
-| `AZURE_TENANT_ID` | Tenant ID del App Registration en Microsoft Entra ID | `2845a269-a60f-4fdf-969c-2811937a2e85` |
+| `AZURE_TENANT_ID` | Tenant ID del App Registration en Microsoft Entra ID | `3fb8463e-0e33-4b7d-adc1-2a47c707831e` |
 | `AZURE_CLIENT_ID` | Client ID del App Registration, usado para validar la audiencia (`aud`) del JWT | `9494b59c-9c6e-4a0f-91ae-ae90212882e7` |
+| `CORS_ALLOWED_ORIGINS` | Origen(es) permitidos para llamadas del navegador (separados por coma) | `http://localhost:4200` |
+
+Importante: el frontend Angular y este backend deben apuntar al **mismo tenant** de Azure AD. Si el App Registration del frontend y el de esta API quedan en tenants distintos, el login falla con `AADSTS500011` (resource principal not found in tenant).
 
 A partir de `AZURE_TENANT_ID`, el servicio calcula automáticamente el emisor esperado del token:
 
@@ -105,7 +108,9 @@ La configuración de seguridad vive en [`SecurityConfig`](src/main/java/df/digit
   - El **issuer**, contra `https://login.microsoftonline.com/<AZURE_TENANT_ID>/v2.0`.
   - La **audiencia** (`aud`), que debe coincidir con `AZURE_CLIENT_ID` o con `api://<AZURE_CLIENT_ID>`, tanto si el claim viene como texto simple o como lista.
 - La sesión es **stateless** (`SessionCreationPolicy.STATELESS`) y CSRF está deshabilitado, ya que el servicio no mantiene sesión de servidor y toda la autenticación viaja en el token de cada petición.
-- Con `@EnableMethodSecurity` se habilita autorización a nivel de método: el endpoint de estado de login exige el scope `SCP_Auth.Access` mediante `@PreAuthorize`.
+- El claim `scp` del token (los scopes delegados que consintió el usuario) se mapea a authorities con prefijo `SCP_` mediante un `JwtAuthenticationConverter` propio, en vez del prefijo `SCOPE_` que usa Spring por defecto.
+- Con `@EnableMethodSecurity` se habilita autorización a nivel de método: el endpoint de estado de login exige el scope `SCP_access_as_user` mediante `@PreAuthorize` (`access_as_user` es el nombre del scope expuesto en Azure AD, en el App Registration de esta API, bajo "Expose an API").
+- **CORS**: se declara una `CorsConfigurationSource` explícita (variable `CORS_ALLOWED_ORIGINS`), necesaria porque el frontend Angular corre en un origen distinto (`http://localhost:4200`) y el navegador bloquea la respuesta si el backend no autoriza ese origen.
 
 ---
 
@@ -113,7 +118,7 @@ La configuración de seguridad vive en [`SecurityConfig`](src/main/java/df/digit
 
 | Método | Ruta | Protección | Descripción |
 |---|---|---|---|
-| GET | `/api/v1/login/status` | JWT válido + scope `SCP_Auth.Access` | Confirma que la autenticación contra Azure AD fue exitosa. |
+| GET | `/api/v1/login/status` | JWT válido + scope `SCP_access_as_user` | Confirma que la autenticación contra Azure AD fue exitosa. |
 | POST | `/api/v1/audit/login` | JWT válido (cualquier usuario autenticado) | Registra un intento de inicio de sesión (éxito, fallo o cuenta bloqueada). |
 | GET | `/v3/api-docs`, `/swagger-ui/**`, `/swagger-ui.html` | Público | Documentación OpenAPI / Swagger UI. |
 
@@ -145,6 +150,8 @@ Cuerpo de la petición ([`LoginAuditRequest`](src/main/java/df/digitalfix_ms_log
 }
 ```
 
+Hay una colección de Postman lista para importar en [`postman/digitalfix-ms-login.postman_collection.json`](postman/digitalfix-ms-login.postman_collection.json), con los casos de éxito y los errores esperables (401 sin token, 401 audiencia incorrecta, 403 sin el scope, 400 de validación, etc.).
+
 ---
 
 ## Base de datos
@@ -174,6 +181,7 @@ El proyecto incluye un `Dockerfile` multi-stage y un `docker-compose.yaml` para 
 
 - **Etapa `builder`**: imagen `maven:3.9.8-eclipse-temurin-21-alpine`, resuelve dependencias (`mvn dependency:go-offline`) y compila el proyecto (`mvn package -DskipTests`).
 - **Etapa final**: imagen liviana `eclipse-temurin:21-jre-alpine`, ejecuta la aplicación con un usuario no root (`spring:spring`) y expone el puerto `8080`.
+- Por defecto agrega `-Djava.net.preferIPv4Stack=true` a `JAVA_OPTS`: sin este flag, la JVM intenta conectarse por IPv6 a `login.microsoftonline.com` (que resuelve con registros AAAA) y falla con `Network unreachable` en redes Docker sin salida IPv6 real.
 
 ### Build y ejecución con Docker
 
@@ -190,14 +198,23 @@ docker run --rm -p 8080:8080 \
 
 ### Con Docker Compose
 
-El `docker-compose.yaml` levanta dos servicios:
+El `docker-compose.yaml` levanta dos servicios en una red con nombre fijo, `digitalfix-net` (no el nombre autogenerado por Docker Compose):
 
 - `oracle-db`: base de datos Oracle Free (`gvenzl/oracle-free:23-slim`), expuesta en el puerto `1521`, con volumen persistente `oracle_data`.
 - `ms-login`: construye la imagen del microservicio a partir del `Dockerfile`, expuesta en el puerto `8080`, y espera a que `oracle-db` esté saludable antes de iniciar.
 
+Que la red tenga un nombre fijo es deliberado: le permite a otros microservicios del proyecto (por ejemplo `digitalfix-ms-workorders`) unirse a ella como red externa y conectarse a este mismo Oracle centralizado por el hostname `oracle-db`, sin levantar un contenedor de base de datos propio. Por eso este `docker-compose` debe levantarse **primero**, antes que el de cualquier otro microservicio que dependa de la misma base de datos.
+
+Crea un archivo `.env` en la raíz del proyecto (ignorado por git) con las variables de Azure AD, para no tener que exportarlas en cada sesión de terminal:
+
 ```bash
-export AZURE_TENANT_ID=<AZURE_TENANT_ID>
-docker compose up --build
+# .env
+AZURE_TENANT_ID=<AZURE_TENANT_ID>
+AZURE_CLIENT_ID=<AZURE_CLIENT_ID>
+```
+
+```bash
+docker compose up -d --build
 ```
 
 Para detenerlo:
@@ -206,7 +223,13 @@ Para detenerlo:
 docker compose down
 ```
 
-Nota: las credenciales de la base de datos y `AZURE_CLIENT_ID` quedan fijadas en el propio `docker-compose.yaml` para fines de prueba local; deben reemplazarse por variables de entorno o un gestor de secretos antes de cualquier despliegue real.
+Para además borrar los datos de Oracle (por ejemplo, para forzar que Flyway vuelva a migrar desde cero):
+
+```bash
+docker compose down -v
+```
+
+Nota: las credenciales de la base de datos quedan fijadas en el propio `docker-compose.yaml` para fines de prueba local; deben reemplazarse por variables de entorno o un gestor de secretos antes de cualquier despliegue real.
 
 ---
 
@@ -218,6 +241,7 @@ digitalfix-ms-login/
 ├── docker-compose.yaml
 ├── pom.xml
 ├── mvnw / mvnw.cmd
+├── postman/               # Coleccion de Postman (casos de exito y de error)
 └── src/
     ├── main/
     │   ├── java/df/digitalfix_ms_login/

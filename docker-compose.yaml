@@ -1,5 +1,13 @@
 version: '3.8'
 
+# Red con nombre fijo (no el nombre autogenerado "<carpeta>_default") para que
+# otros microservicios (ej. digitalfix-ms-workorders) puedan unirse a esta
+# misma red como "external" y llegar a este mismo Oracle centralizado por el
+# hostname "oracle-db", sin duplicar el contenedor de base de datos.
+networks:
+  digitalfix-net:
+    name: digitalfix-net
+
 services:
   oracle-db:
     image: gvenzl/oracle-free:23-slim
@@ -16,6 +24,8 @@ services:
       start_period: 30s
     volumes:
       - oracle_data:/opt/oracle/oradata
+    networks:
+      - digitalfix-net
 
   ms-login:
     build:
@@ -39,6 +49,8 @@ services:
     depends_on:
       oracle-db:
         condition: service_healthy
+    networks:
+      - digitalfix-net
 
 volumes:
   oracle_data:

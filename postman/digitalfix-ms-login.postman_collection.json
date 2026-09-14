@@ -1,0 +1,332 @@
+{
+  "info": {
+    "name": "DigitalFix - ms-login",
+    "description": "Casos de prueba para digitalfix-ms-login: login/status protegido por JWT de Azure AD, auditoria de intentos de login, y los errores esperables cuando falta el token, esta mal formado, tiene audiencia incorrecta o le falta el scope requerido.\n\nVariables a configurar antes de correr la coleccion:\n- baseUrl: URL del backend (por defecto http://localhost:8080)\n- accessToken: access token de Azure AD para la API de digitalfix (audiencia = apiClientId, scope access_as_user)\n- graphAccessToken: access token de Azure AD para Microsoft Graph (audiencia distinta), usado para simular el caso de audiencia incorrecta\n- tenantId / apiClientId: datos de tu App Registration, usados solo como referencia en las descripciones",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "graphAccessToken", "value": "", "type": "string" },
+    { "key": "tenantId", "value": "2845a269-a60f-4fdf-969c-2811937a2e85", "type": "string" },
+    { "key": "apiClientId", "value": "3ff96d3a-fa6c-4349-ad81-4e9536b4148a", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "00 - Endpoints publicos (sin token)",
+      "item": [
+        {
+          "name": "OK - Swagger / OpenAPI docs",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/v3/api-docs", "host": ["{{baseUrl}}"], "path": ["v3", "api-docs"] },
+            "description": "permitAll() en SecurityConfig para /v3/api-docs/**, /swagger-ui/** y /swagger-ui.html. Debe responder 200 sin necesidad de token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 (endpoint publico)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 - GET /api/v1/login/status",
+      "item": [
+        {
+          "name": "OK - Token valido con scope access_as_user",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/login/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "login", "status"] },
+            "description": "Requiere: (1) firma/issuer/expiracion validos -> pasa el JwtDecoder; (2) aud del token == apiClientId o api://apiClientId -> pasa el audienceValidator; (3) el claim scp incluye 'access_as_user' -> pasa @PreAuthorize(\"hasAuthority('SCP_access_as_user')\").\nSi las 3 condiciones se cumplen: 200 OK con el mensaje de bienvenida."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Cuerpo confirma autenticacion exitosa', function () {",
+                  "    pm.expect(pm.response.text()).to.include('Autenticaci');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 401 - Sin header Authorization",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/login/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "login", "status"] },
+            "description": "Cualquier request sin Bearer token cae en anyRequest().authenticated() de SecurityConfig y nunca llega al controller.\nEsperado: 401 Unauthorized, header WWW-Authenticate: Bearer (sin cuerpo)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 (sin token)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Header WWW-Authenticate presente', function () {",
+                  "    pm.response.to.have.header('WWW-Authenticate');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 401 - Token mal formado / no es un JWT",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "esto-no-es-un-jwt-valido", "type": "string" }]
+            },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/login/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "login", "status"] },
+            "description": "El NimbusJwtDecoder no logra ni siquiera parsear el token como JWT (le falta la estructura header.payload.signature).\nEsperado: 401 Unauthorized. En logs del backend: 'Bearer token is malformed' o similar."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 (token malformado)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 401 - Token expirado o con firma invalida",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhcGk6Ly8zZmY5NmQzYS1mYTZjLTQzNDktYWQ4MS00ZTk1MzZiNDE0OGEiLCJpc3MiOiJodHRwczovL2xvZ2luLm1pY3Jvc29mdG9ubGluZS5jb20vMjg0NWEyNjktYTYwZi00ZmRmLTk2OWMtMjgxMTkzN2VhODUvdjIuMCIsImV4cCI6MTAwMDAwMDAwMH0.firma-invalida-o-token-expirado-de-prueba",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/login/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "login", "status"] },
+            "description": "Simula un JWT con estructura valida pero firma que no corresponde a las llaves publicas (JWKS) del tenant, o un 'exp' vencido.\nEsperado: 401 Unauthorized (JwtValidationException: invalid_token / jwt expired / signature mismatch).\n\nPara probar el caso real de expiracion con un token de verdad: pega en accessToken un token valido, espera a que pase su 'exp' (revisa el claim en jwt.ms) y vuelve a llamar este endpoint con el mismo token vencido."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 (firma invalida o expirado)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 401 - Token valido pero de otra audiencia (Microsoft Graph)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{graphAccessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/login/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "login", "status"] },
+            "description": "Token con firma, issuer y expiracion validos (lo emitio el mismo tenant de Azure AD), pero pedido para OTRO recurso (Microsoft Graph, aud=00000003-0000-0000-c000-000000000000) en vez de para digitalfix-api.\nEl audienceValidator de SecurityConfig.jwtDecoder() lo rechaza porque aud no es apiClientId ni api://apiClientId.\nEsperado: 401 Unauthorized.\n\nComo conseguir graphAccessToken en Postman: pestaña Authorization > Type OAuth 2.0 > Get New Access Token, con:\n- Grant type: Authorization Code (PKCE)\n- Auth URL: https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/authorize\n- Access Token URL: https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/token\n- Client ID: el clientId del frontend (1a248ad8-d43b-42af-87f2-b177b352e235)\n- Scope: https://graph.microsoft.com/User.Read\n- Callback URL: https://oauth.pstmn.io/v1/callback (debe estar agregada como Redirect URI en esa App Registration)\nCopia el access token resultante en la variable graphAccessToken."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 (audiencia incorrecta)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 403 - Token valido pero sin el scope access_as_user",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/login/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "login", "status"] },
+            "description": "Este caso NO se simula con un header distinto: ocurre cuando el token SI pasa el JwtDecoder (issuer y audiencia correctos), pero el claim 'scp' no incluye 'access_as_user' (por ejemplo, si en Azure Portal el usuario nunca dio consentimiento para ese permiso, o se pidio un token para digitalfix-api sin incluir ese scope en la solicitud de MSAL).\nEsperado: 403 Forbidden (pasa autenticacion, falla @PreAuthorize).\n\nComo reproducirlo: en Azure Portal > tu usuario > Enterprise applications > la app de digitalfix-api > Permissions, revoca el consentimiento del scope, o pide el token en Postman/MSAL sin agregar 'access_as_user' a la lista de scopes solicitados, y usa ese token aqui."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 403 (autenticado pero sin el scope) o 200 si el token si trae el scope', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - POST /api/v1/audit/login",
+      "item": [
+        {
+          "name": "OK - Login exitoso registrado",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/audit/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "audit", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"usuario.prueba@digitalfix.cl\",\n  \"success\": true,\n  \"ipAddress\": \"192.168.1.10\",\n  \"userAgent\": \"PostmanRuntime/7.36\"\n}"
+            },
+            "description": "Requiere JWT valido (cualquier usuario autenticado, sin scope especifico) y los campos obligatorios: username, success, ipAddress.\nEsperado: 201 Created sin cuerpo. El evento queda como LOGIN_SUCCESS en LOG_AUDITORIA_ACCESO."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OK - Login fallido por cuenta bloqueada",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/audit/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "audit", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"usuario.bloqueado@digitalfix.cl\",\n  \"success\": false,\n  \"ipAddress\": \"192.168.1.11\",\n  \"userAgent\": \"PostmanRuntime/7.36\",\n  \"failureReason\": \"Cuenta bloqueada por intentos fallidos\"\n}"
+            },
+            "description": "failureReason contiene la palabra 'bloqueada', asi que LoginAuditSevice.resolverTipoEvento() lo clasifica como ACCOUNT_BLOCKED en vez de LOGIN_FAILURE.\nEsperado: 201 Created."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 401 - Sin token",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/audit/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "audit", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"usuario.prueba@digitalfix.cl\",\n  \"success\": true,\n  \"ipAddress\": \"192.168.1.10\"\n}"
+            },
+            "description": "Este endpoint tambien exige JWT valido (anyRequest().authenticated()), no tiene permitAll.\nEsperado: 401 Unauthorized."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 (sin token)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 400 - Campos obligatorios faltantes",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/audit/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "audit", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userAgent\": \"PostmanRuntime/7.36\"\n}"
+            },
+            "description": "IMPORTANTE: necesita un accessToken valido en la variable de coleccion (hereda el Bearer auth de la coleccion). Sin token da 401 antes de llegar a la validacion, no 400.\n\nFaltan username, success e ipAddress (@NotBlank / @NotNull en LoginAuditRequest).\nEsperado (con token valido): 400 Bad Request, manejado por GlobalExceptionHandler.handleMethodArgumentNotValidException, con un ErrorResponse que lista los 3 mensajes de validacion en el arreglo 'errors'."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('Cuerpo trae la lista de errores de validacion', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('errors');",
+                  "    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error 400 - JSON malformado",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/audit/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "audit", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"username\": \"usuario.prueba@digitalfix.cl\", \"success\": true, "
+            },
+            "description": "IMPORTANTE: necesita un accessToken valido en la variable de coleccion (hereda el Bearer auth de la coleccion). Sin token da 401 antes de llegar al parseo del body, no 400.\n\nEl cuerpo no es JSON valido (queda cortado a proposito).\nEsperado (con token valido): 400 Bad Request (HttpMessageNotReadableException), aunque este caso no esta cubierto por el GlobalExceptionHandler actual, por lo que Spring devuelve su respuesta de error por defecto en vez del formato ErrorResponse."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 (JSON malformado)', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
