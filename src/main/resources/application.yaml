@@ -37,3 +37,7 @@ spring:
         jwt:
           issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
           audiences: api://${AZURE_CLIENT_ID}
+
+#4. CORS: origenes desde los que el frontend Angular puede llamar a esta API.
+#   Variable CORS_ALLOWED_ORIGINS (lista separada por comas), leida directamente
+#   por CorsConfigurationSource en SecurityConfig. Por defecto: http://localhost:4200

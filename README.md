@@ -149,7 +149,7 @@ Cuerpo de la petición ([`LoginAuditRequest`](src/main/java/df/digitalfix_ms_log
 
 ## Base de datos
 
-El esquema se gestiona con Flyway. La migración inicial [`V1__crear_tabla_auditoria_login.sql`](src/main/resources/db/migration/v1__crear_tabla_auditoria_login.sql) crea la tabla `LOG_AUDITORIA_ACCESO`:
+El esquema se gestiona con Flyway. La migración inicial [`V1__crear_tabla_auditoria_login.sql`](src/main/resources/db/migration/V1__crear_tabla_auditoria_login.sql) crea la tabla `LOG_AUDITORIA_ACCESO`:
 
 | Columna | Tipo | Descripción |
 |---|---|---|

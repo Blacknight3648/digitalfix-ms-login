@@ -29,6 +29,9 @@ COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-ENV JAVA_OPTS=""
+# preferIPv4Stack evita que la JVM intente conectarse por IPv6 a servicios
+# externos (ej. login.microsoftonline.com) cuando el contenedor corre en una
+# red Docker sin salida IPv6 real, lo que produce "Network unreachable".
+ENV JAVA_OPTS="-Djava.net.preferIPv4Stack=true"
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

@@ -29,7 +29,13 @@ services:
       - SPRING_DATASOURCE_USERNAME=system
       - SPRING_DATASOURCE_PASSWORD=system
       - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
       - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY=DEBUG
+      # El contenedor no tiene ruta IPv6 real (Docker bridge network), pero
+      # login.microsoftonline.com resuelve con registros AAAA. Sin este flag,
+      # el JVM intenta conectar por IPv6 primero y falla con
+      # "Network unreachable" en vez de reintentar por IPv4.
+      - JAVA_OPTS=-Djava.net.preferIPv4Stack=true
     depends_on:
       oracle-db:
         condition: service_healthy
