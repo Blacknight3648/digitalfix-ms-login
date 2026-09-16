@@ -1,4 +1,4 @@
-package df.digitalfix_ms_login.entity;
+package df.digitalfix_ms_login.model;
 
 import jakarta.persistence.*;
 import lombok.*;

@@ -1,8 +1,8 @@
 # DigitalFix - ms-login
 
-Microservicio de autenticación y auditoría de accesos del sistema **DigitalFix**, una plataforma de órdenes de trabajo de mantención eléctrica. Construido con **Spring Boot** y **Spring Security OAuth2 Resource Server**, valida los JWT emitidos por **Microsoft Entra ID (Azure AD)** y registra cada intento de inicio de sesión en una base de datos **Oracle**.
+Microservicio de autenticación y auditoría de accesos del sistema **DigitalFix**, una plataforma de órdenes de trabajo de mantención eléctrica. Construido con **Spring Boot** y **Spring Security OAuth2 Resource Server**, valida los JWT emitidos por **Microsoft Entra ID (Azure AD)** y registra cada intento de inicio de sesión en una base de datos **Oracle Autonomous Database (Serverless en Oracle Cloud - OCI)** mediante conexión segura con **Wallet mTLS**.
 
-Dentro de la arquitectura de DigitalFix, este servicio se ubica detrás del flujo `JWT -> API Gateway -> ms-digitalfix-bff -> microservicio de dominio`, actuando como el punto que confirma la autenticación del usuario y deja constancia (auditoría) de cada acceso.
+Dentro de la arquitectura de DigitalFix, este servicio se ubica detrás del flujo `JWT -> API Gateway (AWS) -> ms-digitalfix-bff -> microservicio de dominio`, actuando como el punto que confirma la autenticación del usuario y deja constancia (auditoría) de cada acceso.
 
 ---
 
@@ -18,8 +18,9 @@ Dentro de la arquitectura de DigitalFix, este servicio se ubica detrás del fluj
 
 - **Framework**: Spring Boot (spring-boot-starter-parent 4.0.8)
 - **Lenguaje**: Java 21
+- **Puerto por defecto**: `8081` (configurable mediante variable `PORT`)
 - **Seguridad**: Spring Security + OAuth2 Resource Server (validación de JWT de Microsoft Entra ID vía `spring-cloud-azure-starter`)
-- **Persistencia**: Spring Data JPA + Oracle Database (driver `ojdbc17`)
+- **Persistencia**: Spring Data JPA + Oracle Autonomous Database (driver `ojdbc11` + Oracle PKI para mTLS)
 - **Migraciones de base de datos**: Flyway (`flyway-database-oracle`)
 - **Documentación de API**: springdoc-openapi (Swagger UI)
 - **Utilitarios**: Lombok
@@ -31,71 +32,70 @@ Dentro de la arquitectura de DigitalFix, este servicio se ubica detrás del fluj
 
 - JDK 21
 - Maven (o usar el wrapper `mvnw` / `mvnw.cmd` incluido en el proyecto)
-- Una base de datos Oracle accesible (local, en contenedor o en la nube)
+- Base de datos Oracle Autonomous en OCI con Wallet mTLS descargado
 - Un App Registration en Microsoft Entra ID (tenant ID y client ID)
-- Docker (opcional, para ejecutar el servicio y la base de datos en contenedores)
+- Docker y Docker Compose (opcional, para ejecutar en contenedor)
 
 ---
 
-## Configuración
+## Configuración y Variables de Entorno
 
-El servicio se configura mediante variables de entorno, definidas en [`src/main/resources/application.yaml`](src/main/resources/application.yaml):
+El microservicio se parametriza mediante variables de entorno en [`src/main/resources/application.yaml`](src/main/resources/application.yaml) o a través de un archivo `.env`:
 
-| Variable | Descripción | Ejemplo |
+| Variable | Descripción | Ejemplo Local / Docker |
 |---|---|---|
-| `SPRING_DATASOURCE_URL` | URL JDBC de la base de datos Oracle | `jdbc:oracle:thin:@//oracle-db:1521/FREEPDB1` |
-| `SPRING_DATASOURCE_USERNAME` | Usuario de la base de datos | `system` |
-| `SPRING_DATASOURCE_PASSWORD` | Contraseña de la base de datos | `system` |
+| `PORT` | Puerto HTTP donde escucha el microservicio | `8081` |
+| `SPRING_DATASOURCE_URL` | URL JDBC de Oracle Autonomous con ruta a la carpeta del Wallet | `jdbc:oracle:thin:@clx44joct2djmlz9_high?TNS_ADMIN=/app/wallet` |
+| `SPRING_DATASOURCE_USERNAME` | Usuario administrador de la base de datos | `ADMIN` |
+| `SPRING_DATASOURCE_PASSWORD` | Contraseña del usuario administrador en OCI | `TuPasswordSegura.` |
 | `AZURE_TENANT_ID` | Tenant ID del App Registration en Microsoft Entra ID | `3fb8463e-0e33-4b7d-adc1-2a47c707831e` |
-| `AZURE_CLIENT_ID` | Client ID del App Registration, usado para validar la audiencia (`aud`) del JWT | `9494b59c-9c6e-4a0f-91ae-ae90212882e7` |
-| `CORS_ALLOWED_ORIGINS` | Origen(es) permitidos para llamadas del navegador (separados por coma) | `http://localhost:4200` |
+| `AZURE_CLIENT_ID` | Client ID del App Registration (audiencia `aud` del JWT) | `9494b59c-9c6e-4a0f-91ae-ae90212882e7` |
+| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para llamadas del navegador (separados por coma) | `http://localhost:4200` |
 
-Importante: el frontend Angular y este backend deben apuntar al **mismo tenant** de Azure AD. Si el App Registration del frontend y el de esta API quedan en tenants distintos, el login falla con `AADSTS500011` (resource principal not found in tenant).
+> 📖 **Guía paso a paso de Oracle y Wallet:** Para detalles exhaustivos de cómo aprovisionar OCI, descargar el Wallet, evitar el error `ORA-01017` y configurar certificados, consulta [`docs/configuracion-bd.md`](docs/configuracion-bd.md).
 
-A partir de `AZURE_TENANT_ID`, el servicio calcula automáticamente el emisor esperado del token:
+### Plantilla de entorno `.env`
 
+Copia el archivo `.env.example` a `.env` (ignorado por git para no subir secretos):
+
+```bash
+cp .env.example .env
 ```
-issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
-audiences: api://${AZURE_CLIENT_ID}
-```
 
-Nota: `AZURE_CLIENT_ID` tiene un valor de respaldo definido en [`SecurityConfig`](src/main/java/df/digitalfix_ms_login/config/SecurityConfig.java) únicamente para entornos de desarrollo; en cualquier despliegue real debe fijarse explícitamente al Client ID correcto.
+Contenido del `.env`:
+```env
+PORT=8081
+SPRING_DATASOURCE_URL=jdbc:oracle:thin:@clx44joct2djmlz9_high?TNS_ADMIN=/app/wallet
+SPRING_DATASOURCE_USERNAME=ADMIN
+SPRING_DATASOURCE_PASSWORD=TuPasswordDeAdmin
+AZURE_TENANT_ID=3fb8463e-0e33-4b7d-adc1-2a47c707831e
+AZURE_CLIENT_ID=9494b59c-9c6e-4a0f-91ae-ae90212882e7
+CORS_ALLOWED_ORIGINS=http://localhost:4200
+```
 
 ---
 
 ## Quick start (desarrollo local)
 
-1. Levantar una base de datos Oracle accesible y exportar las variables de entorno de conexión y de Azure AD:
+1. Asegúrate de tener la carpeta del Wallet en `src/main/resources/wallet/`.
+2. En Windows (PowerShell) o Linux, exporta las variables o permite que Spring Boot tome los defaults de `application.yaml`:
 
 ```bash
-export SPRING_DATASOURCE_URL=jdbc:oracle:thin:@//localhost:1521/FREEPDB1
-export SPRING_DATASOURCE_USERNAME=system
-export SPRING_DATASOURCE_PASSWORD=system
+export PORT=8081
+export SPRING_DATASOURCE_URL="jdbc:oracle:thin:@clx44joct2djmlz9_high?TNS_ADMIN=C:/Users/GAMER/Desktop/DigitalFix/digitalfix-ms-login/src/main/resources/wallet"
+export SPRING_DATASOURCE_USERNAME=ADMIN
+export SPRING_DATASOURCE_PASSWORD=TuPassword
 export AZURE_TENANT_ID=<AZURE_TENANT_ID>
 export AZURE_CLIENT_ID=<AZURE_CLIENT_ID>
 ```
 
-2. Ejecutar el servicio con el Maven Wrapper:
+3. Ejecutar el servicio con Maven Wrapper:
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-El servicio queda disponible en `http://localhost:8080`. Al iniciar, Flyway aplica las migraciones ubicadas en `src/main/resources/db/migration`.
-
-### Compilar y empaquetar
-
-```bash
-./mvnw clean package
-```
-
-El artefacto `.jar` queda generado en `target/`.
-
-### Ejecutar pruebas
-
-```bash
-./mvnw test
-```
+El servicio queda disponible en `http://localhost:8081`. Al iniciar, Flyway aplica las migraciones ubicadas en `src/main/resources/db/migration`.
 
 ---
 
@@ -106,11 +106,11 @@ La configuración de seguridad vive en [`SecurityConfig`](src/main/java/df/digit
 - El servicio funciona como **OAuth2 Resource Server**: toda petición debe incluir un JWT válido emitido por Microsoft Entra ID, excepto los endpoints de documentación (`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`), que son públicos.
 - El `JwtDecoder` valida:
   - El **issuer**, contra `https://login.microsoftonline.com/<AZURE_TENANT_ID>/v2.0`.
-  - La **audiencia** (`aud`), que debe coincidir con `AZURE_CLIENT_ID` o con `api://<AZURE_CLIENT_ID>`, tanto si el claim viene como texto simple o como lista.
-- La sesión es **stateless** (`SessionCreationPolicy.STATELESS`) y CSRF está deshabilitado, ya que el servicio no mantiene sesión de servidor y toda la autenticación viaja en el token de cada petición.
-- El claim `scp` del token (los scopes delegados que consintió el usuario) se mapea a authorities con prefijo `SCP_` mediante un `JwtAuthenticationConverter` propio, en vez del prefijo `SCOPE_` que usa Spring por defecto.
-- Con `@EnableMethodSecurity` se habilita autorización a nivel de método: el endpoint de estado de login exige el scope `SCP_access_as_user` mediante `@PreAuthorize` (`access_as_user` es el nombre del scope expuesto en Azure AD, en el App Registration de esta API, bajo "Expose an API").
-- **CORS**: se declara una `CorsConfigurationSource` explícita (variable `CORS_ALLOWED_ORIGINS`), necesaria porque el frontend Angular corre en un origen distinto (`http://localhost:4200`) y el navegador bloquea la respuesta si el backend no autoriza ese origen.
+  - La **audiencia** (`aud`), que debe coincidir con `AZURE_CLIENT_ID` o con `api://<AZURE_CLIENT_ID>`.
+- La sesión es **stateless** (`SessionCreationPolicy.STATELESS`) y CSRF está deshabilitado.
+- El claim `scp` del token se mapea con prefijo `SCP_` mediante un `JwtAuthenticationConverter` personalizado.
+- Se exige el scope `SCP_access_as_user` en endpoints protegidos mediante `@PreAuthorize`.
+- **CORS**: configurado para permitir peticiones del frontend Angular declarado en `CORS_ALLOWED_ORIGINS`.
 
 ---
 
@@ -136,27 +136,15 @@ Cuerpo de la petición ([`LoginAuditRequest`](src/main/java/df/digitalfix_ms_log
 }
 ```
 
-- `username`, `success` e `ipAddress` son obligatorios; `userAgent` y `failureReason` son opcionales.
-- El tipo de evento se resuelve automáticamente en el servicio: `LOGIN_SUCCESS` si `success` es verdadero, `ACCOUNT_BLOCKED` si `failureReason` contiene la palabra "bloqueada", o `LOGIN_FAILURE` en cualquier otro caso de fallo.
 - Respuesta exitosa: `201 Created` sin cuerpo.
-- Si la validación de datos falla, responde `400 Bad Request` con el siguiente formato ([`ErrorResponse`](src/main/java/df/digitalfix_ms_login/dto/ErrorResponse.java)):
 
-```json
-{
-  "status": 400,
-  "message": "Error de validacion de los datos",
-  "timestamp": "2026-09-13T10:00:00",
-  "errors": ["El nombre de usuario es obligatorio"]
-}
-```
-
-Hay una colección de Postman lista para importar en [`postman/digitalfix-ms-login.postman_collection.json`](postman/digitalfix-ms-login.postman_collection.json), con los casos de éxito y los errores esperables (401 sin token, 401 audiencia incorrecta, 403 sin el scope, 400 de validación, etc.).
+Colección de Postman disponible en [`postman/digitalfix-ms-login.postman_collection.json`](postman/digitalfix-ms-login.postman_collection.json).
 
 ---
 
 ## Base de datos
 
-El esquema se gestiona con Flyway. La migración inicial [`V1__crear_tabla_auditoria_login.sql`](src/main/resources/db/migration/V1__crear_tabla_auditoria_login.sql) crea la tabla `LOG_AUDITORIA_ACCESO`:
+El esquema se gestiona con Flyway en Oracle Autonomous Database. La migración inicial [`V1__crear_tabla_auditoria_login.sql`](src/main/resources/db/migration/V1__crear_tabla_auditoria_login.sql) crea la tabla `LOG_AUDITORIA_ACCESO`:
 
 | Columna | Tipo | Descripción |
 |---|---|---|
@@ -166,70 +154,58 @@ El esquema se gestiona con Flyway. La migración inicial [`V1__crear_tabla_audit
 | `DIRECCION_IP` | `VARCHAR2(45)` | Dirección IP de origen del intento. |
 | `USER_AGENT` | `VARCHAR2(500)` | Cliente o navegador desde el que se realizó el intento. |
 | `FECHA_REGISTRO` | `TIMESTAMP` | Fecha y hora de registro del evento. |
-
-Existe además un índice `IDX_AUDITORIA_USER` sobre `USER_ENTRA_ID` para acelerar las búsquedas por usuario.
-
-Nota: la entidad [`LoginAudit`](src/main/java/df/digitalfix_ms_login/entity/LoginAudit.java) agrega también la columna `MOTIVO_FALLO`, no incluida en la migración inicial de Flyway; se sincroniza automáticamente gracias a `spring.jpa.hibernate.ddl-auto: update`, configurado en `application.yaml` como complemento a Flyway.
+| `MOTIVO_FALLO` | `VARCHAR2(255)` | Descripción o detalle en caso de fallo (sincronizado vía JPA). |
 
 ---
 
 ## Dockerización
 
-El proyecto incluye un `Dockerfile` multi-stage y un `docker-compose.yaml` para levantar el servicio junto a una base de datos Oracle de prueba.
+El proyecto cuenta con un `Dockerfile` multi-stage optimizado para producción y un `docker-compose.yaml` configurado para conectarse directamente a la base de datos Oracle en la nube (OCI) usando el Wallet.
 
 ### Detalle del Dockerfile
 
-- **Etapa `builder`**: imagen `maven:3.9.8-eclipse-temurin-21-alpine`, resuelve dependencias (`mvn dependency:go-offline`) y compila el proyecto (`mvn package -DskipTests`).
-- **Etapa final**: imagen liviana `eclipse-temurin:21-jre-alpine`, ejecuta la aplicación con un usuario no root (`spring:spring`) y expone el puerto `8080`.
-- Por defecto agrega `-Djava.net.preferIPv4Stack=true` a `JAVA_OPTS`: sin este flag, la JVM intenta conectarse por IPv6 a `login.microsoftonline.com` (que resuelve con registros AAAA) y falla con `Network unreachable` en redes Docker sin salida IPv6 real.
+- **Etapa `builder`**: imagen `maven:3.9.8-eclipse-temurin-21-alpine`, descarga dependencias y compila el `.jar`.
+- **Etapa final**: imagen liviana `eclipse-temurin:21-jre-alpine`:
+  - Ejecuta con un usuario no root (`spring:spring`).
+  - Incluye el `.jar` y copia el Wallet a `/app/wallet`.
+  - Expone el puerto `8081`.
+  - Agrega `-Djava.net.preferIPv4Stack=true` a `JAVA_OPTS` para garantizar conectividad IPv4 estable con Microsoft Entra ID y OCI.
 
-### Build y ejecución con Docker
+### Build y ejecución con Docker standalone
 
 ```bash
 docker build -t digitalfix-ms-login .
-docker run --rm -p 8080:8080 \
-  -e SPRING_DATASOURCE_URL=jdbc:oracle:thin:@//<host>:1521/FREEPDB1 \
-  -e SPRING_DATASOURCE_USERNAME=system \
-  -e SPRING_DATASOURCE_PASSWORD=system \
-  -e AZURE_TENANT_ID=<AZURE_TENANT_ID> \
-  -e AZURE_CLIENT_ID=<AZURE_CLIENT_ID> \
+docker run --rm -p 8081:8081 \
+  --env-file .env \
   --name digitalfix-ms-login digitalfix-ms-login
 ```
 
-### Con Docker Compose
+### Ejecución con Docker Compose
 
-El `docker-compose.yaml` levanta dos servicios en una red con nombre fijo, `digitalfix-net` (no el nombre autogenerado por Docker Compose):
-
-- `oracle-db`: base de datos Oracle Free (`gvenzl/oracle-free:23-slim`), expuesta en el puerto `1521`, con volumen persistente `oracle_data`.
-- `ms-login`: construye la imagen del microservicio a partir del `Dockerfile`, expuesta en el puerto `8080`, y espera a que `oracle-db` esté saludable antes de iniciar.
-
-Que la red tenga un nombre fijo es deliberado: le permite a otros microservicios del proyecto (por ejemplo `digitalfix-ms-workorders`) unirse a ella como red externa y conectarse a este mismo Oracle centralizado por el hostname `oracle-db`, sin levantar un contenedor de base de datos propio. Por eso este `docker-compose` debe levantarse **primero**, antes que el de cualquier otro microservicio que dependa de la misma base de datos.
-
-Crea un archivo `.env` en la raíz del proyecto (ignorado por git) con las variables de Azure AD, para no tener que exportarlas en cada sesión de terminal:
+El `docker-compose.yaml` levanta el microservicio conectado a la red común `digitalfix-net` para integrarse con los demás servicios y el futuro API Gateway:
 
 ```bash
-# .env
-AZURE_TENANT_ID=<AZURE_TENANT_ID>
-AZURE_CLIENT_ID=<AZURE_CLIENT_ID>
-```
-
-```bash
+# Levantar el servicio
 docker compose up -d --build
-```
 
-Para detenerlo:
+# Ver logs en tiempo real
+docker compose logs -f ms-login
 
-```bash
+# Detener el servicio
 docker compose down
 ```
 
-Para además borrar los datos de Oracle (por ejemplo, para forzar que Flyway vuelva a migrar desde cero):
+---
 
-```bash
-docker compose down -v
-```
+## Despliegue en AWS / EC2
 
-Nota: las credenciales de la base de datos quedan fijadas en el propio `docker-compose.yaml` para fines de prueba local; deben reemplazarse por variables de entorno o un gestor de secretos antes de cualquier despliegue real.
+El workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) despliega automáticamente a una instancia EC2 (Ubuntu) en cada push a la rama `deploy`:
+
+1. Compila el proyecto con Maven para validar que no haya errores de compilación ni de empaquetado.
+2. Se conecta por SSH a la instancia EC2.
+3. Actualiza el código (`git fetch` + `git reset --hard origin/deploy`).
+4. Ejecuta `docker compose up -d --build`, levantando la aplicación en el puerto `8081` y conectándose a la base de datos Oracle en OCI.
+5. El puerto `8081` puede ser registrado directamente como target en un **AWS Application Load Balancer (ALB)** o integrado con **Amazon API Gateway** (HTTP API con VPC Link).
 
 ---
 
@@ -239,35 +215,24 @@ Nota: las credenciales de la base de datos quedan fijadas en el propio `docker-c
 digitalfix-ms-login/
 ├── Dockerfile
 ├── docker-compose.yaml
+├── .env.example              # Plantilla de variables de entorno
 ├── pom.xml
 ├── mvnw / mvnw.cmd
-├── postman/               # Coleccion de Postman (casos de exito y de error)
+├── docs/
+│   └── configuracion-bd.md   # Guía completa OCI, Wallet mTLS y Troubleshooting
+├── postman/                  # Colección de pruebas de endpoints
 └── src/
     ├── main/
     │   ├── java/df/digitalfix_ms_login/
-    │   │   ├── config/       # Configuración de seguridad (JWT de Azure AD)
-    │   │   ├── controller/   # Endpoints REST (login, auditoría)
-    │   │   ├── dto/          # Objetos de transferencia (request/response)
-    │   │   ├── entity/       # Entidades JPA
-    │   │   ├── enums/        # Tipos de evento de auditoría
-    │   │   ├── exception/    # Manejo global de excepciones
-    │   │   ├── repository/   # Repositorios JPA
-    │   │   ├── service/      # Lógica de negocio
-    │   │   └── DigitalfixMsLoginApplication.java
+    │   │   ├── config/       # SecurityConfig y configuración de CORS
+    │   │   ├── controller/   # Endpoints REST (LoginController, AuditController)
+    │   │   ├── dto/          # DTOs de petición y respuesta
+    │   │   ├── model/        # Entidad LoginAudit
+    │   │   ├── repository/   # LoginAuditRepository
+    │   │   └── service/      # LoginAuditService
     │   └── resources/
     │       ├── application.yaml
+    │       ├── wallet/       # Certificados y configuración mTLS de Oracle
     │       └── db/migration/ # Scripts de Flyway
     └── test/
-        └── java/df/digitalfix_ms_login/
-```
-
----
-
-## Comandos disponibles
-
-```bash
-./mvnw spring-boot:run       # ejecutar el servicio en modo desarrollo
-./mvnw clean package         # compilar y generar el jar (con pruebas)
-./mvnw clean package -DskipTests  # generar el jar sin ejecutar pruebas
-./mvnw test                  # ejecutar las pruebas
 ```

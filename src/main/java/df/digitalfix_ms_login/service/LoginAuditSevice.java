@@ -1,15 +1,13 @@
 package df.digitalfix_ms_login.service;
 
 import df.digitalfix_ms_login.dto.LoginAuditRequest;
-import df.digitalfix_ms_login.entity.LoginAudit;
+import df.digitalfix_ms_login.model.LoginAudit;
 import df.digitalfix_ms_login.enums.AuditEventType;
 import df.digitalfix_ms_login.repository.LoginAuditRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Locale;
 
 @Slf4j
 @Service

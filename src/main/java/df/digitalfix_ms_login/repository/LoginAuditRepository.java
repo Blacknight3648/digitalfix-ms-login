@@ -1,6 +1,6 @@
 package df.digitalfix_ms_login.repository;
 
-import df.digitalfix_ms_login.entity.LoginAudit;
+import df.digitalfix_ms_login.model.LoginAudit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

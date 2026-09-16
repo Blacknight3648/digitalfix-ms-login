@@ -1,56 +1,33 @@
 version: '3.8'
 
-# Red con nombre fijo (no el nombre autogenerado "<carpeta>_default") para que
-# otros microservicios (ej. digitalfix-ms-workorders) puedan unirse a esta
-# misma red como "external" y llegar a este mismo Oracle centralizado por el
-# hostname "oracle-db", sin duplicar el contenedor de base de datos.
+# Red compartida para la arquitectura de microservicios DigitalFix
 networks:
   digitalfix-net:
     name: digitalfix-net
 
 services:
-  oracle-db:
-    image: gvenzl/oracle-free:23-slim
-    container_name: oracle-free
-    ports:
-      - "1521:1521"
-    environment:
-      - ORACLE_PASSWORD=system
-    healthcheck:
-      test: ["CMD", "healthcheck.sh"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    volumes:
-      - oracle_data:/opt/oracle/oradata
-    networks:
-      - digitalfix-net
-
   ms-login:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: ms-login-service
     ports:
-      - "8080:8080"
+      - "${PORT:-8081}:${PORT:-8081}"
+    env_file:
+      - .env
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:oracle:thin:@//oracle-db:1521/FREEPDB1
-      - SPRING_DATASOURCE_USERNAME=system
-      - SPRING_DATASOURCE_PASSWORD=system
+      - PORT=${PORT:-8081}
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
       - AZURE_TENANT_ID=${AZURE_TENANT_ID}
       - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
-      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY=DEBUG
-      # El contenedor no tiene ruta IPv6 real (Docker bridge network), pero
-      # login.microsoftonline.com resuelve con registros AAAA. Sin este flag,
-      # el JVM intenta conectar por IPv6 primero y falla con
-      # "Network unreachable" en vez de reintentar por IPv4.
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY=INFO
+      # Evita que JVM intente conectar por IPv6 a Microsoft Entra ID en redes Docker sin salida IPv6
       - JAVA_OPTS=-Djava.net.preferIPv4Stack=true
-    depends_on:
-      oracle-db:
-        condition: service_healthy
+    volumes:
+      # Montaje del Wallet mTLS de Oracle Cloud
+      - ./src/main/resources/wallet:/app/wallet:ro
     networks:
       - digitalfix-net
-
-volumes:
-  oracle_data:

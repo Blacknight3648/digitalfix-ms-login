@@ -5,7 +5,7 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "baseUrl", "value": "http://localhost:8081", "type": "string" },
     { "key": "accessToken", "value": "", "type": "string" },
     { "key": "graphAccessToken", "value": "", "type": "string" },
     { "key": "tenantId", "value": "2845a269-a60f-4fdf-969c-2811937a2e85", "type": "string" },

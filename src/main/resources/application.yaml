@@ -1,43 +1,48 @@
+server:
+  port: ${PORT:8081}
+
 spring:
   application:
     name: digitalfix-ms-login
 
-  #1. Conexion a BD oracle
+  # 1. Conexion a BD oracle con Wallet (OCI)
   datasource:
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: ${SPRING_DATASOURCE_URL:jdbc:oracle:thin:@clx44joct2djmlz9_high?TNS_ADMIN=C:/Users/GAMER/Desktop/DigitalFix/digitalfix-ms-login/src/main/resources/wallet}
+    username: ${SPRING_DATASOURCE_USERNAME:ADMIN}
+    password: ${SPRING_DATASOURCE_PASSWORD:Anastasia1110.}
     driver-class-name: oracle.jdbc.OracleDriver
 
+  # 2. Configuración de JPA / Hibernate para Oracle
   jpa:
     hibernate:
-      # Solucion de conflicto: configuracion para control de flyway
       ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.OracleDialect
 
-  #2. configuración de flyway
+  # 3. Configuración de flyway (compatible con Oracle)
   flyway:
     enabled: true
     baseline-on-migrate: true
     baseline-version: 0
     locations: classpath:db/migration
 
-  #3. Microsoftentra ID(Resource server)
+  # 4. Microsoft Entra ID (Resource server)
   cloud:
     azure:
       active-directory:
         enabled: true
         profile:
-          tenant-id: ${AZURE_TENANT_ID}
+          tenant-id: ${AZURE_TENANT_ID:3fb8463e-0e33-4b7d-adc1-2a47c707831e}
         credential:
-          client-id: ${AZURE_CLIENT_ID}
+          client-id: ${AZURE_CLIENT_ID:9494b59c-9c6e-4a0f-91ae-ae90212882e7}
 
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
-          audiences: api://${AZURE_CLIENT_ID}
+          issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:3fb8463e-0e33-4b7d-adc1-2a47c707831e}/v2.0
+          audiences: api://${AZURE_CLIENT_ID:9494b59c-9c6e-4a0f-91ae-ae90212882e7}
 
-#4. CORS: origenes desde los que el frontend Angular puede llamar a esta API.
-#   Variable CORS_ALLOWED_ORIGINS (lista separada por comas), leida directamente
-#   por CorsConfigurationSource en SecurityConfig. Por defecto: http://localhost:4200
+# 5. CORS: origenes desde los que el frontend Angular puede llamar a esta API.
+#   Variable CORS_ALLOWED_ORIGINS (lista separada por comas)

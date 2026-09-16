@@ -22,12 +22,13 @@ WORKDIR /app
 
 # Usuario no-root por seguridad
 RUN addgroup -S spring && adduser -S spring -G spring
+# Copiar artefacto compilado y wallet de Oracle
+COPY --chown=spring:spring --from=builder /app/target/*.jar app.jar
+COPY --chown=spring:spring src/main/resources/wallet /app/wallet
+
 USER spring:spring
 
-# Copiar artefacto compilado
-COPY --from=builder /app/target/*.jar app.jar
-
-EXPOSE 8080
+EXPOSE 8081
 
 # preferIPv4Stack evita que la JVM intente conectarse por IPv6 a servicios
 # externos (ej. login.microsoftonline.com) cuando el contenedor corre en una
