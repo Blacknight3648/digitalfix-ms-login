@@ -28,6 +28,6 @@ services:
       - JAVA_OPTS=-Djava.net.preferIPv4Stack=true
     volumes:
       # Montaje del Wallet mTLS de Oracle Cloud
-      - ./src/main/resources/wallet:/app/wallet:ro
+      - ./wallet:/app/wallet:ro
     networks:
       - digitalfix-net

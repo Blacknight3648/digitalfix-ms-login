@@ -1,15 +1,18 @@
 server:
-  port: ${PORT:8081}
+  port: ${PORT:${SERVER_PORT:8080}}
 
 spring:
   application:
     name: digitalfix-ms-login
 
+  config:
+    import: optional:file:.env[.properties]
+
   # 1. Conexion a BD oracle con Wallet (OCI)
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:oracle:thin:@clx44joct2djmlz9_high?TNS_ADMIN=C:/Users/GAMER/Desktop/DigitalFix/digitalfix-ms-login/src/main/resources/wallet}
-    username: ${SPRING_DATASOURCE_USERNAME:ADMIN}
-    password: ${SPRING_DATASOURCE_PASSWORD:Anastasia1110.}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: oracle.jdbc.OracleDriver
 
   # 2. Configuración de JPA / Hibernate para Oracle
@@ -25,6 +28,7 @@ spring:
     enabled: true
     baseline-on-migrate: true
     baseline-version: 0
+    table: flyway_schema_history_login
     locations: classpath:db/migration
 
   # 4. Microsoft Entra ID (Resource server)
