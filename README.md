@@ -51,6 +51,9 @@ El microservicio se parametriza mediante variables de entorno en [`src/main/reso
 | `AZURE_TENANT_ID` | Tenant ID del App Registration en Microsoft Entra ID | `3fb8463e-0e33-4b7d-adc1-2a47c707831e` |
 | `AZURE_CLIENT_ID` | Client ID del App Registration (audiencia `aud` del JWT) | `9494b59c-9c6e-4a0f-91ae-ae90212882e7` |
 | `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para llamadas del navegador (separados por coma) | `http://localhost:4200` |
+| `MS_USER_URL` | URL de ms-user, de donde se obtiene el rol de negocio del usuario | `http://localhost:8082` |
+
+**Puerto asignado:** `8081` en desarrollo local, único dentro del ecosistema (ver la [tabla de puertos](https://github.com/SolgreyDuocUC/digitalfix-infrastructure#86-puertos-de-los-microservicios) en `digitalfix-infrastructure`). El `8080` queda libre porque suele estar ocupado por Apache/XAMPP. El `8081` local lo fija `PORT` en el `.env`; sin esa variable se usa el default `8080` de `application.yaml`, que es el que usa la EC2 `ec2-frontend-login` (mapeo `8080:8080`).
 
 > 📖 **Guía paso a paso de Oracle y Wallet:** Para detalles exhaustivos de cómo aprovisionar OCI, descargar el Wallet, evitar el error `ORA-01017` y configurar certificados, consulta [`docs/configuracion-bd.md`](docs/configuracion-bd.md).
 
@@ -101,16 +104,30 @@ El servicio queda disponible en `http://localhost:8081`. Al iniciar, Flyway apli
 
 ## Seguridad
 
-La configuración de seguridad vive en [`SecurityConfig`](src/main/java/df/digitalfix_ms_login/config/SecurityConfig.java):
+La seguridad vive en el paquete [`security`](src/main/java/df/digitalfix_ms_login/security). Sigue el modelo RBAC del backend de referencia (reglas centralizadas por ruta y autoridades `ROLE_*`), pero **no emite tokens propios**: autentica Microsoft Entra ID (IDaaS) y el servicio solo valida su JWT como **OAuth2 Resource Server**.
 
-- El servicio funciona como **OAuth2 Resource Server**: toda petición debe incluir un JWT válido emitido por Microsoft Entra ID, excepto los endpoints de documentación (`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`), que son públicos.
-- El `JwtDecoder` valida:
-  - El **issuer**, contra `https://login.microsoftonline.com/<AZURE_TENANT_ID>/v2.0`.
-  - La **audiencia** (`aud`), que debe coincidir con `AZURE_CLIENT_ID` o con `api://<AZURE_CLIENT_ID>`.
-- La sesión es **stateless** (`SessionCreationPolicy.STATELESS`) y CSRF está deshabilitado.
-- El claim `scp` del token se mapea con prefijo `SCP_` mediante un `JwtAuthenticationConverter` personalizado.
-- Se exige el scope `SCP_access_as_user` en endpoints protegidos mediante `@PreAuthorize`.
-- **CORS**: configurado para permitir peticiones del frontend Angular declarado en `CORS_ALLOWED_ORIGINS`.
+**Validación del token** ([`SpringSecurityConfig`](src/main/java/df/digitalfix_ms_login/security/SpringSecurityConfig.java), `JwtDecoder`):
+
+| Qué se valida | Cómo |
+|---|---|
+| Firma | Con las claves públicas (JWKS) del tenant, descubiertas desde el issuer (RS256). |
+| Vigencia | Claims `exp` y `nbf`. |
+| Issuer | `https://login.microsoftonline.com/<AZURE_TENANT_ID>/v2.0`. |
+| Audiencia | `aud` igual a `AZURE_CLIENT_ID` o `api://<AZURE_CLIENT_ID>`. |
+| Punto limpio | [`TokenIssuedAfterLogoutValidator`](src/main/java/df/digitalfix_ms_login/security/TokenIssuedAfterLogoutValidator.java) rechaza los tokens emitidos antes del último `LOGOUT` del usuario. |
+
+**Autoridades** ([`EntraJwtAuthenticationConverter`](src/main/java/df/digitalfix_ms_login/security/EntraJwtAuthenticationConverter.java)):
+
+- `SCOPE_<scope>` por cada scope del claim `scp` (por ejemplo `SCOPE_access_as_user`).
+- `ROLE_<ROL>` por cada App Role del claim `roles` del token.
+- `ROLE_<ROL>` con el rol del usuario en **ms-user** (`USUARIOS.ID_ROL → ROLES.CODIGO`), consultado en `GET /api/user/me` reenviando el mismo JWT ([`UserRoleClient`](src/main/java/df/digitalfix_ms_login/service/UserRoleClient.java), caché de 5 minutos por usuario). Si ms-user no responde, solo pasan las rutas que piden el scope.
+
+**Errores** ([`JsonSecurityErrorHandler`](src/main/java/df/digitalfix_ms_login/security/JsonSecurityErrorHandler.java)), con el mismo formato JSON que `GlobalExceptionHandler`:
+
+- `401 Unauthorized` (+ cabecera `WWW-Authenticate: Bearer`): falta el token, la firma no es válida, expiró, issuer/audiencia incorrectos o es anterior al último logout. El motivo va en `errors`.
+- `403 Forbidden`: el token es válido pero no tiene el scope o el rol que exige la ruta.
+
+La sesión es **stateless** y CSRF está deshabilitado. **CORS** permite los orígenes de `CORS_ALLOWED_ORIGINS`.
 
 ---
 
@@ -118,8 +135,11 @@ La configuración de seguridad vive en [`SecurityConfig`](src/main/java/df/digit
 
 | Método | Ruta | Protección | Descripción |
 |---|---|---|---|
-| GET | `/api/v1/login/status` | JWT válido + scope `SCP_access_as_user` | Confirma que la autenticación contra Azure AD fue exitosa. |
-| POST | `/api/v1/audit/login` | JWT válido (cualquier usuario autenticado) | Registra un intento de inicio de sesión (éxito, fallo o cuenta bloqueada). |
+| GET | `/api/v1/login/status` | Scope `access_as_user` | Confirma que la autenticación contra Entra ID fue exitosa. |
+| GET | `/api/v1/login/me` | Scope `access_as_user` | Identidad, roles y scopes del usuario según el token validado. Lo usa el frontend para armar las vistas por rol. |
+| POST | `/api/v1/login/logout` | Scope `access_as_user` | Registra el `LOGOUT`; desde ese momento se rechazan los tokens emitidos antes. Responde `204`. |
+| POST | `/api/v1/audit/login` | Scope `access_as_user` | Registra un intento de inicio de sesión (éxito, fallo o cuenta bloqueada). |
+| GET | `/api/v1/audit/login` | Rol `ADMIN` o `AUDITOR` | Últimos 50 eventos de auditoría de acceso. |
 | GET | `/v3/api-docs`, `/swagger-ui/**`, `/swagger-ui.html` | Público | Documentación OpenAPI / Swagger UI. |
 
 ### POST /api/v1/audit/login

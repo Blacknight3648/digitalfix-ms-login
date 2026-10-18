@@ -50,3 +50,9 @@ spring:
 
 # 5. CORS: origenes desde los que el frontend Angular puede llamar a esta API.
 #   Variable CORS_ALLOWED_ORIGINS (lista separada por comas)
+
+# 6. ms-user: fuente del rol de negocio (USUARIOS/ROLES) para la autorizacion por rol.
+#   Variable MS_USER_URL (por defecto el puerto local de ms-user).
+digitalfix:
+  ms-user:
+    url: ${MS_USER_URL:http://localhost:8082}
