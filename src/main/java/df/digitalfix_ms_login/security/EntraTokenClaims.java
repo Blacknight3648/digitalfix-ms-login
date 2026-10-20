@@ -2,8 +2,9 @@ package df.digitalfix_ms_login.security;
 
 import org.springframework.security.oauth2.jwt.Jwt;
 
-// Lectura de los claims de identidad de Entra ID, con las mismas reglas que
-// ms-user (copia idéntica), para que ambos servicios identifiquen al usuario igual.
+// Lectura de los claims de identidad de Entra ID. Es una copia idéntica en
+// ms-login, ms-user, ms-workorders y ms-catalog, para que todos los servicios
+// identifiquen al usuario igual.
 // Cubre tokens v1 (upn, unique_name) y v2 (preferred_username).
 public final class EntraTokenClaims {
 

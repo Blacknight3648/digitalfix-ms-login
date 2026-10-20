@@ -17,6 +17,8 @@ import static org.mockito.Mockito.when;
 class TokenIssuedAfterLogoutValidatorTest {
 
     private static final String OID = "11111111-2222-3333-4444-555555555555";
+    // Entra ID emite "iat" 5 minutos en el pasado (margen de reloj).
+    private static final long ENTRA_BACKDATE_SECONDS = 300;
 
     private final LoginAuditSevice auditSevice = mock(LoginAuditSevice.class);
     private final TokenIssuedAfterLogoutValidator validator = new TokenIssuedAfterLogoutValidator(auditSevice);
@@ -46,7 +48,19 @@ class TokenIssuedAfterLogoutValidatorTest {
         Instant logoutAt = Instant.now();
         when(auditSevice.findLastLogout(OID)).thenReturn(Optional.of(toLocal(logoutAt)));
 
-        assertTrue(validator.validate(tokenIssuedAt(logoutAt.minusSeconds(60))).hasErrors());
+        // Emitido en realidad 60 s antes del logout.
+        Instant iat = logoutAt.minusSeconds(60 + ENTRA_BACKDATE_SECONDS);
+        assertTrue(validator.validate(tokenIssuedAt(iat)).hasErrors());
+    }
+
+    @Test
+    void aceptaNuevoLoginPocosMinutosDespuesDelLogoutAunqueEntraAtraseElIat() {
+        // Login real 60 s después del logout: su "iat" queda 4 min antes del logout.
+        Instant logoutAt = Instant.parse("2026-10-20T19:15:14Z");
+        when(auditSevice.findLastLogout(OID)).thenReturn(Optional.of(toLocal(logoutAt)));
+
+        Instant iat = logoutAt.plusSeconds(60 - ENTRA_BACKDATE_SECONDS);
+        assertFalse(validator.validate(tokenIssuedAt(iat)).hasErrors());
     }
 
     @Test

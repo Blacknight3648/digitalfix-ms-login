@@ -4,6 +4,7 @@ import df.digitalfix_ms_login.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,6 +24,7 @@ import java.util.List;
 //   401 -> falta el token, la firma no es válida, expiró, issuer/audience
 //          incorrectos o fue emitido antes del último logout.
 //   403 -> el token es válido pero no tiene el scope o el rol que pide la ruta.
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JsonSecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
@@ -32,6 +34,9 @@ public class JsonSecurityErrorHandler implements AuthenticationEntryPoint, Acces
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
+        // Se registra para que un token rechazado (p. ej. emitido antes del
+        // logout) no pase en silencio: el frontend solo ve que la sesión falló.
+        log.warn("401 en {}: {}", request.getRequestURI(), authException.getMessage());
         // Estándar OAuth 2.0 (RFC 6750): indica al cliente que debe enviar/renovar el Bearer token.
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
         write(response, HttpStatus.UNAUTHORIZED, "Token inválido o ausente", authException.getMessage());

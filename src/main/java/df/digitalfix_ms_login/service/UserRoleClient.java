@@ -28,7 +28,10 @@ public class UserRoleClient {
 
     private static final Duration ROLE_TTL = Duration.ofMinutes(5);
     private static final Duration MISSING_ROLE_TTL = Duration.ofMinutes(1);
-    private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
+    // Holgado a propósito: la primera consulta tras levantar ms-user incluye
+    // descargar el JWKS de Entra ID y abrir la conexión a Oracle (varios segundos).
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(8);
 
     private record CachedRole(Optional<String> role, Instant expiresAt) {
     }
@@ -38,8 +41,8 @@ public class UserRoleClient {
 
     public UserRoleClient(@Value("${digitalfix.ms-user.url:http://localhost:8082}") String msUserUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(HTTP_TIMEOUT);
-        requestFactory.setReadTimeout(HTTP_TIMEOUT);
+        requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
+        requestFactory.setReadTimeout(READ_TIMEOUT);
         this.restClient = RestClient.builder()
                 .baseUrl(msUserUrl)
                 .requestFactory(requestFactory)
@@ -52,7 +55,16 @@ public class UserRoleClient {
             return cached.role();
         }
 
-        Optional<String> role = fetchRoleCode(bearerToken);
+        Optional<String> role;
+        try {
+            role = fetchRoleCode(bearerToken);
+        } catch (RestClientException e) {
+            // Un fallo de ms-user (caído o lento al arrancar) no se guarda en caché:
+            // la próxima petición vuelve a consultar, en vez de dejar al usuario
+            // sin rol (y con 403) durante MISSING_ROLE_TTL.
+            log.warn("No se pudo obtener el rol desde ms-user: {}", e.getMessage());
+            return Optional.empty();
+        }
         cache.put(userEntraId, new CachedRole(role, Instant.now().plus(role.isPresent() ? ROLE_TTL : MISSING_ROLE_TTL)));
         return role;
     }
@@ -63,17 +75,12 @@ public class UserRoleClient {
     }
 
     private Optional<String> fetchRoleCode(String bearerToken) {
-        try {
-            Map<?, ?> profile = restClient.get()
-                    .uri("/api/user/me")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
-                    .retrieve()
-                    .body(Map.class);
-            Object code = profile != null ? profile.get("codigoRol") : null;
-            return code != null ? Optional.of(code.toString().toUpperCase()) : Optional.empty();
-        } catch (RestClientException e) {
-            log.warn("No se pudo obtener el rol desde ms-user: {}", e.getMessage());
-            return Optional.empty();
-        }
+        Map<?, ?> profile = restClient.get()
+                .uri("/api/user/me")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                .retrieve()
+                .body(Map.class);
+        Object code = profile != null ? profile.get("codigoRol") : null;
+        return code != null ? Optional.of(code.toString().toUpperCase()) : Optional.empty();
     }
 }

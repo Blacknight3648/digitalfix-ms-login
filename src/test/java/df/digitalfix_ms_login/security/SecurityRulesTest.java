@@ -110,6 +110,15 @@ class SecurityRulesTest {
     }
 
     @Test
+    void superadminHeredaElAccesoDeAdminYAuditor() throws Exception {
+        when(auditSevice.findRecentEvents()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/audit/login").with(jwt()
+                        .authorities(API_SCOPE, new SimpleGrantedAuthority("ROLE_SUPERADMIN"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void logoutRegistraElEventoYResponde204() throws Exception {
         mockMvc.perform(post("/api/v1/login/logout").with(jwt()
                         .jwt(token -> token.claim("oid", OID))

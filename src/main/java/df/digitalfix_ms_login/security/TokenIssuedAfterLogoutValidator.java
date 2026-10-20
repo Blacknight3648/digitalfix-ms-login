@@ -9,6 +9,7 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
@@ -26,6 +27,8 @@ public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt
             "El token fue emitido antes del ultimo cierre de sesion; inicia sesion nuevamente.",
             null);
 
+    private static final Duration ENTRA_IAT_BACKDATE = Duration.ofMinutes(5);
+
     private final LoginAuditSevice auditSevice;
 
     @Override
@@ -36,11 +39,14 @@ public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt
             return OAuth2TokenValidatorResult.success();
         }
 
-        // "iat" viene en segundos: se trunca el logout al segundo para no
-        // rechazar un token emitido en el mismo segundo del nuevo login.
+        // Entra ID emite "iat" con ENTRA_IAT_BACKDATE de atraso (margen de reloj),
+        // así que se compara la hora real de emisión. Sin esto, un login hecho
+        // pocos minutos después del logout queda rechazado (401) y el usuario
+        // entra sin su rol. "iat" viene en segundos: el logout se trunca al segundo.
+        Instant realIssuedAt = issuedAt.plus(ENTRA_IAT_BACKDATE);
         boolean issuedBeforeLogout = auditSevice.findLastLogout(userEntraId)
                 .map(logoutAt -> logoutAt.atZone(ZoneId.systemDefault()).toInstant().truncatedTo(ChronoUnit.SECONDS))
-                .map(issuedAt::isBefore)
+                .map(realIssuedAt::isBefore)
                 .orElse(false);
 
         return issuedBeforeLogout
