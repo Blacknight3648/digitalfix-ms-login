@@ -22,9 +22,8 @@ WORKDIR /app
 
 # Usuario no-root por seguridad
 RUN addgroup -S spring && adduser -S spring -G spring
-# Copiar artefacto compilado y wallet de Oracle
+# Copiar artefacto compilado. El wallet de Oracle se monta en /app/wallet.
 COPY --chown=spring:spring --from=builder /app/target/*.jar app.jar
-COPY --chown=spring:spring src/main/resources/wallet /app/wallet
 
 USER spring:spring
 
