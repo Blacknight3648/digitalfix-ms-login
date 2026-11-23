@@ -2,6 +2,7 @@ package df.digitalfix_ms_login.security;
 
 import df.digitalfix_ms_login.service.UserRoleClient;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -15,13 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-// Traduce el JWT de Entra ID a las autoridades que usan las reglas de
-// SpringSecurityConfig, con las mismas convenciones del backend de referencia:
-//   - "scp" (scopes delegados, separados por espacio) -> SCOPE_<scope>
-//   - "roles" (App Roles asignados en Entra ID)        -> ROLE_<ROL>
-//   - rol del usuario registrado en ms-user            -> ROLE_<ROL>
-// Así hasAuthority("SCOPE_access_as_user") y hasAnyRole("ADMIN", ...) funcionan
-// tanto si los roles vienen en el token como si vienen de la base de datos.
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class EntraJwtAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
@@ -47,8 +42,14 @@ public class EntraJwtAuthenticationConverter implements Converter<Jwt, AbstractA
         }
 
         String userEntraId = EntraTokenClaims.userEntraId(jwt);
-        userRoleClient.findRoleCode(userEntraId, jwt.getTokenValue())
-                .ifPresent(role -> authorities.add(toRoleAuthority(role)));
+        if (userEntraId != null) {
+            try {
+                userRoleClient.findRoleCode(userEntraId, jwt.getTokenValue())
+                        .ifPresent(role -> authorities.add(toRoleAuthority(role)));
+            } catch (Exception ex) {
+                log.warn("No se pudo consultar el rol en ms-user para {}: {}", userEntraId, ex.getMessage());
+            }
+        }
 
         return new JwtAuthenticationToken(jwt, authorities, userEntraId);
     }

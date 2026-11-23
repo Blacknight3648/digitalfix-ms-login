@@ -2,6 +2,7 @@ package df.digitalfix_ms_login.security;
 
 import df.digitalfix_ms_login.service.LoginAuditSevice;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -11,13 +12,10 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 
-// Un access token de Entra ID sigue siendo válido hasta que expira (~1 hora),
-// aunque el usuario ya haya cerrado sesión. Este validador obliga a partir
-// desde un punto limpio: tras un LOGOUT registrado, solo se aceptan tokens
-// emitidos después, es decir, obtenidos con un nuevo inicio de sesión.
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt> {
@@ -27,7 +25,9 @@ public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt
             "El token fue emitido antes del ultimo cierre de sesion; inicia sesion nuevamente.",
             null);
 
-    private static final Duration ENTRA_IAT_BACKDATE = Duration.ofMinutes(5);
+    // Pequeño margen de tolerancia de reloj (clock skew), no 5 minutos hacia
+    // adelante
+    private static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
 
     private final LoginAuditSevice auditSevice;
 
@@ -39,14 +39,21 @@ public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt
             return OAuth2TokenValidatorResult.success();
         }
 
-        // Entra ID emite "iat" con ENTRA_IAT_BACKDATE de atraso (margen de reloj),
-        // así que se compara la hora real de emisión. Sin esto, un login hecho
-        // pocos minutos después del logout queda rechazado (401) y el usuario
-        // entra sin su rol. "iat" viene en segundos: el logout se trunca al segundo.
-        Instant realIssuedAt = issuedAt.plus(ENTRA_IAT_BACKDATE);
+        // Si el logout se guarda en UTC (lo estándar en backend/BD), convertimos a
+        // Instant en UTC.
+        // Si tu BD guarda en hora local de Chile, cambia ZoneOffset.UTC por
+        // ZoneId.of("America/Santiago").
+        Instant effectiveIssuedAt = issuedAt.plus(CLOCK_SKEW);
         boolean issuedBeforeLogout = auditSevice.findLastLogout(userEntraId)
-                .map(logoutAt -> logoutAt.atZone(ZoneId.systemDefault()).toInstant().truncatedTo(ChronoUnit.SECONDS))
-                .map(realIssuedAt::isBefore)
+                .map(logoutAt -> logoutAt.toInstant(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS))
+                .map(logoutInstant -> {
+                    boolean before = effectiveIssuedAt.isBefore(logoutInstant);
+                    if (before) {
+                        log.debug("Token rechazado por logout previo: user={}, issuedAt={}, logoutAt={}",
+                                userEntraId, issuedAt, logoutInstant);
+                    }
+                    return before;
+                })
                 .orElse(false);
 
         return issuedBeforeLogout
