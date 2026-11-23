@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 
 @Slf4j
@@ -25,9 +25,10 @@ public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt
             "El token fue emitido antes del ultimo cierre de sesion; inicia sesion nuevamente.",
             null);
 
-    // Pequeño margen de tolerancia de reloj (clock skew), no 5 minutos hacia
-    // adelante
-    private static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
+    // Entra ID emite "iat" (y "nbf") con 5 minutos de atraso respecto de la hora
+    // real de emisión. Sin compensarlo, un login hecho menos de 5 minutos después
+    // del logout se rechaza con 401 y el usuario entra sin su rol (ej. SUPERADMIN).
+    private static final Duration ENTRA_IAT_BACKDATE = Duration.ofMinutes(5);
 
     private final LoginAuditSevice auditSevice;
 
@@ -39,13 +40,11 @@ public class TokenIssuedAfterLogoutValidator implements OAuth2TokenValidator<Jwt
             return OAuth2TokenValidatorResult.success();
         }
 
-        // Si el logout se guarda en UTC (lo estándar en backend/BD), convertimos a
-        // Instant en UTC.
-        // Si tu BD guarda en hora local de Chile, cambia ZoneOffset.UTC por
-        // ZoneId.of("America/Santiago").
-        Instant effectiveIssuedAt = issuedAt.plus(CLOCK_SKEW);
+        // El logout se guarda con LocalDateTime.now() (zona del JVM), así que se
+        // interpreta con esa misma zona; usar UTC lo desplaza 3 horas en Chile.
+        Instant effectiveIssuedAt = issuedAt.plus(ENTRA_IAT_BACKDATE);
         boolean issuedBeforeLogout = auditSevice.findLastLogout(userEntraId)
-                .map(logoutAt -> logoutAt.toInstant(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS))
+                .map(logoutAt -> logoutAt.atZone(ZoneId.systemDefault()).toInstant().truncatedTo(ChronoUnit.SECONDS))
                 .map(logoutInstant -> {
                     boolean before = effectiveIssuedAt.isBefore(logoutInstant);
                     if (before) {

@@ -6,11 +6,13 @@ spring:
     name: digitalfix-ms-login
 
   config:
+    # Los imports posteriores tienen prioridad: el .env propio va al final para
+    # que sus valores locales (localhost) ganen a los .env compartidos de Docker.
     import:
-      - optional:file:.env[.properties]
-      - optional:file:../digitalfix-infrastructure/.env[.properties]
-      - optional:file:digitalfix-infrastructure/.env[.properties]
       - optional:file:../.env[.properties]
+      - optional:file:digitalfix-infrastructure/.env[.properties]
+      - optional:file:../digitalfix-infrastructure/.env[.properties]
+      - optional:file:.env[.properties]
 
   # 1. Conexion a BD oracle con Wallet (OCI)
   datasource:
