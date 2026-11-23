@@ -1,19 +1,27 @@
 server:
-  port: ${PORT:${SERVER_PORT:8080}}
+  port: ${PORT:${SERVER_PORT:8081}}
 
 spring:
   application:
     name: digitalfix-ms-login
 
   config:
-    import: optional:file:.env[.properties]
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../digitalfix-infrastructure/.env[.properties]
+      - optional:file:digitalfix-infrastructure/.env[.properties]
+      - optional:file:../.env[.properties]
 
   # 1. Conexion a BD oracle con Wallet (OCI)
   datasource:
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:oracle:thin:@clx44joct2djmlz9_low?TNS_ADMIN=./wallet}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:ADMIN}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:Anastasia1106.}}
     driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:3}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:1}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:30000}
 
   # 2. Configuración de JPA / Hibernate para Oracle
   jpa:

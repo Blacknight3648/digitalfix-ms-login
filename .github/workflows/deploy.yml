@@ -1,15 +1,13 @@
-name: Deploy to EC2
+name: Deploy MS Login to EC2
 
-# Se dispara con cada push a la rama "deploy", o manualmente desde la pestaña Actions.
 on:
   push:
     branches:
       - deploy
   workflow_dispatch:
 
-# Evita que dos despliegues corran en paralelo y se pisen entre sí.
 concurrency:
-  group: deploy-ec2
+  group: deploy-ms-login-ec2
   cancel-in-progress: false
 
 jobs:
@@ -27,6 +25,9 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Grant execute permission for mvnw
+        run: chmod +x mvnw
+
       - name: Build
         run: ./mvnw -B -ntp package -DskipTests
 
@@ -41,18 +42,24 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT || 22 }}
+          port: ${{ secrets.EC2_SSH_PORT || secrets.EC2_PORT || 22 }}
           script_stop: true
           script: |
             set -e
-            cd "${{ secrets.EC2_APP_DIR }}"
+            cd "${{ secrets.EC2_APP_DIR || secrets.EC2_DEPLOY_PATH }}"
 
             echo "==> Actualizando código a lo último de origin/deploy"
             git fetch origin deploy
             git reset --hard origin/deploy
 
-            echo "==> Reconstruyendo y levantando contenedores"
-            docker compose up -d --build
+            echo "==> Reconstruyendo y levantando contenedor"
+            if [ -f docker-compose.prod.yaml ]; then
+              docker compose -f docker-compose.prod.yaml up -d --build
+            elif [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
+              docker compose up -d --build
+            elif [ -f ../digitalfix-infrastructure/docker-compose.yml ]; then
+              docker compose -f ../digitalfix-infrastructure/docker-compose.yml up -d --build ms-login
+            fi
 
             echo "==> Limpiando imágenes viejas sin usar"
             docker image prune -f
